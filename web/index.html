@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flight-Traj-Sim &mdash; Interactive Trajectory Simulator</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --line: #dfe3e8;
+    --text: #1c2430;
+    --muted: #66707d;
+    --accent: #1f6feb;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 22px; background: var(--bg); color: var(--text);
+    font: 14px/1.55 -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  header { max-width: 1280px; margin: 0 auto 18px; }
+  h1 { font-size: 22px; margin: 0 0 4px; font-weight: 600; }
+  header p { margin: 0; color: var(--muted); max-width: 900px; }
+  .layout {
+    max-width: 1280px; margin: 0 auto; display: grid;
+    grid-template-columns: 330px 1fr; gap: 18px; align-items: start;
+  }
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 16px;
+  }
+  .card h2 {
+    font-size: 12px; text-transform: uppercase; letter-spacing: .07em;
+    color: var(--muted); margin: 0 0 12px; font-weight: 600;
+  }
+  .group-title {
+    font-size: 12px; font-weight: 600; color: var(--muted);
+    margin: 14px 0 6px; padding-bottom: 4px; border-bottom: 1px solid var(--line);
+  }
+  .group-title:first-child { margin-top: 0; }
+  .ctrl { margin-bottom: 9px; }
+  .ctrl label {
+    display: flex; justify-content: space-between; font-size: 12px;
+    color: var(--text); margin-bottom: 2px;
+  }
+  .ctrl label span.val { color: var(--accent); font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  .btn-row { display: flex; gap: 8px; margin-top: 14px; }
+  button {
+    flex: 1; padding: 9px 12px; border-radius: 7px; border: 1px solid var(--line);
+    background: #fff; color: var(--text); font-size: 13px; cursor: pointer;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:hover { filter: brightness(0.97); }
+  select { width: 100%; padding: 7px 8px; border-radius: 7px; border: 1px solid var(--line);
+           background: #fff; color: var(--text); font-size: 13px; }
+  .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .charts.single { grid-template-columns: 1fr; }
+  canvas { width: 100%; height: 220px; display: block; }
+  canvas.tall { height: 260px; }
+  .summary {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(124px, 1fr));
+    gap: 9px; margin-bottom: 14px;
+  }
+  .metric {
+    background: #fbfcfd; border: 1px solid var(--line);
+    border-radius: 8px; padding: 9px 11px;
+  }
+  .metric .k { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .metric .v { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .metric .u { font-size: 11px; color: var(--muted); font-weight: 400; }
+  .note { color: var(--muted); font-size: 12px; margin-top: 10px; }
+  .warn {
+    margin-top: 10px; padding: 8px 10px; border-radius: 6px;
+    background: #fff6e5; border: 1px solid #f0d69a; color: #7a5b12; font-size: 12px; display: none;
+  }
+  .legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; }
+  @media (max-width: 940px) {
+    .layout { grid-template-columns: 1fr; }
+    .charts { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Flight-Traj-Sim</h1>
+  <p>Point-mass aircraft trajectory simulator. An ISA atmosphere, a parabolic drag polar with
+     compressibility drag and a turbofan thrust/fuel model are integrated through climb, cruise and
+     descent &mdash; entirely in your browser, with no server and no network request.</p>
+</header>
+
+<div class="layout">
+  <div class="card">
+    <h2>Parameters</h2>
+
+    <div class="group-title">Aircraft</div>
+    <div class="ctrl">
+      <label>Take-off mass <span class="val" id="v_m0"></span></label>
+      <input type="range" id="m0" min="6000" max="20000" step="100" value="12000">
+    </div>
+    <div class="ctrl">
+      <label>Usable fuel <span class="val" id="v_fuel"></span></label>
+      <input type="range" id="fuel" min="500" max="8000" step="50" value="3000">
+    </div>
+    <div class="ctrl">
+      <label>Wing area <span class="val" id="v_S"></span></label>
+      <input type="range" id="S" min="12" max="60" step="0.5" value="24">
+    </div>
+
+    <div class="group-title">Aerodynamics</div>
+    <div class="ctrl">
+      <label>Zero-lift drag CD0 <span class="val" id="v_cd0"></span></label>
+      <input type="range" id="cd0" min="0.015" max="0.06" step="0.001" value="0.025">
+    </div>
+    <div class="ctrl">
+      <label>Induced drag factor k <span class="val" id="v_k"></span></label>
+      <input type="range" id="kind" min="0.02" max="0.09" step="0.001" value="0.048">
+    </div>
+
+    <div class="group-title">Engine</div>
+    <div class="ctrl">
+      <label>Sea-level thrust <span class="val" id="v_thrust"></span></label>
+      <input type="range" id="thrust" min="12000" max="80000" step="500" value="39000">
+    </div>
+    <div class="ctrl">
+      <label>TSFC <span class="val" id="v_tsfc"></span></label>
+      <input type="range" id="tsfc" min="0.8" max="3.0" step="0.05" value="1.6">
+    </div>
+
+    <div class="group-title">Mission</div>
+    <div class="ctrl">
+      <label>Cruise altitude <span class="val" id="v_hcruise"></span></label>
+      <input type="range" id="hcruise" min="3000" max="15000" step="100" value="11000">
+    </div>
+    <div class="ctrl">
+      <label>Cruise Mach <span class="val" id="v_cruiseMach"></span></label>
+      <input type="range" id="cruiseMach" min="0.45" max="0.88" step="0.01" value="0.78">
+    </div>
+    <div class="ctrl">
+      <label>Climb CAS <span class="val" id="v_climbCas"></span></label>
+      <input type="range" id="climbCas" min="90" max="220" step="5" value="150">
+    </div>
+    <div class="ctrl">
+      <label>Descent throttle <span class="val" id="v_descentThrottle"></span></label>
+      <input type="range" id="descentThrottle" min="0" max="0.6" step="0.01" value="0.15">
+    </div>
+
+    <div class="btn-row">
+      <button class="primary" id="run">Run</button>
+      <button id="reset">Reset</button>
+    </div>
+    <div class="warn" id="warn"></div>
+    <p class="note">Sliders re-run the mission as you drag them.</p>
+  </div>
+
+  <div>
+    <div class="card" style="margin-bottom:14px">
+      <div class="summary" id="summary"></div>
+      <div class="legend">
+        <span><i style="background:#2ca02c"></i>climb</span>
+        <span><i style="background:#1f77b4"></i>cruise</span>
+        <span><i style="background:#d62728"></i>descent</span>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:14px">
+      <div class="charts">
+        <canvas id="c_alt"></canvas>
+        <canvas id="c_spd"></canvas>
+        <canvas id="c_mass"></canvas>
+        <canvas id="c_rng"></canvas>
+      </div>
+      <div class="charts single" style="margin-top:12px">
+        <canvas id="c_prof" class="tall"></canvas>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Sensitivity sweep</h2>
+      <div class="ctrl">
+        <label>Vary parameter</label>
+        <select id="sweepParam">
+          <option value="m0">Take-off mass</option>
+          <option value="cd0">Zero-lift drag CD0</option>
+          <option value="thrust">Sea-level thrust</option>
+          <option value="hcruise">Cruise altitude</option>
+          <option value="cruiseMach">Cruise Mach</option>
+          <option value="tsfc">TSFC</option>
+          <option value="fuel">Usable fuel</option>
+        </select>
+      </div>
+      <div class="btn-row">
+        <button class="primary" id="sweep">Run sweep</button>
+      </div>
+      <div class="charts single" style="margin-top:12px">
+        <canvas id="c_sweep" class="tall"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+/* ===== MODEL:BEGIN =====
+ * Physical model. Every function mirrors flighttrajsim/ in the Python
+ * package one-for-one, so the browser and the desktop application produce
+ * identical numbers.
+ */
+
+/* --- International Standard Atmosphere (ICAO Doc 7488) ---------------- */
+const G0 = 9.80665, R_AIR = 287.05287, GAMMA_AIR = 1.4;
+const T0 = 288.15, P0 = 101325.0, RHO0 = 1.225;
+const LAPSE = -0.0065, H_TROP = 11000.0, T_TROP = 216.65;
+const R_EARTH = 6356766.0;
+const EXP_TROP = G0 / (R_AIR * 0.0065);
+const P_TROP = P0 * Math.pow(T_TROP / T0, EXP_TROP);
+const H_ISO = R_AIR * T_TROP / G0;   // scale height of the isothermal layer
+
+function geopotential(h) { return R_EARTH * h / (R_EARTH + h); }
+function temperatureAtGeopotential(H) { return H < H_TROP ? T0 + LAPSE * H : T_TROP; }
+function temperature(h) { return temperatureAtGeopotential(geopotential(h)); }
+
+function pressure(h) {
+  const H = geopotential(h);
+  if (H < H_TROP) {
+    return P0 * Math.pow(temperatureAtGeopotential(H) / T0, EXP_TROP);
+  }
+  return P_TROP * Math.exp(-(H - H_TROP) / H_ISO);
+}
+
+function density(h) { return pressure(h) / (R_AIR * temperature(h)); }
+function densityRatio(h) { return density(h) / RHO0; }
+function speedOfSound(h) { return Math.sqrt(GAMMA_AIR * R_AIR * temperature(h)); }
+function machOf(h, v) { return v / speedOfSound(h); }
+
+/** Standard climb/descent schedule: constant CAS, then constant Mach. */
+function scheduledSpeed(h, cas, machCruise) {
+  const sigma = Math.max(densityRatio(h), 1e-9);
+  return Math.min(cas / Math.sqrt(sigma), machCruise * speedOfSound(h));
+}
+
+/* --- Aerodynamics: parabolic polar + wave drag ------------------------ */
+function waveDrag(m, mcrit) { return m <= mcrit ? 0 : 12 * Math.pow(m - mcrit, 3); }
+function dragCoefficient(cl, cd0, k, m, mcrit) {
+  return cd0 + k * cl * cl + waveDrag(m, mcrit);
+}
+
+/* --- Turbofan ---------------------------------------------------------- */
+function availableThrust(thrustSL, lapseExp, sigma, throttle) {
+  return thrustSL * Math.pow(Math.max(sigma, 0), lapseExp) * throttle;
+}
+function fuelFlow(thrust, tsfc) { return tsfc * Math.max(thrust, 0); }
+
+/* --- Quasi-steady flight path angle from the specific excess power ----- */
+function steadyFlightPathAngle(p, h, v, mass, throttle, gammaMin, gammaMax) {
+  const q = 0.5 * density(h) * v * v;
+  const weight = mass * G0;
+  const thrust = availableThrust(p.thrust, p.lapse, densityRatio(h), throttle);
+  const m = machOf(h, v);
+  const sMin = Math.sin(gammaMin), sMax = Math.sin(gammaMax);
+  let gamma = 0.0;
+  const st = {
+    mach: m, thrust: thrust, thrustAvailable: thrust, fuelFlow: fuelFlow(thrust, p.tsfc),
+    cl: 0, cd: 0, lift: 0, drag: 0, ld: 0, gamma: 0, stalled: false, angleLimited: false
+  };
+  for (let i = 0; i < 4; i++) {
+    const lift = weight * Math.cos(gamma);
+    const cl = q > 0 ? lift / (q * p.S) : Infinity;
+    const cd = dragCoefficient(cl, p.cd0, p.k, m, p.mcrit);
+    const drag = q * p.S * cd;
+    const sFree = weight > 0 ? (thrust - drag) / weight : 0;
+    const s = Math.min(Math.max(sFree, sMin), sMax);
+    gamma = Math.asin(Math.min(Math.max(s, -0.999999), 0.999999));
+    st.cl = cl; st.cd = cd; st.lift = lift; st.drag = drag;
+    st.ld = cd > 0 ? cl / cd : Infinity;
+    st.stalled = cl > p.clMax;
+  }
+  st.gamma = gamma;
+  /* When the angle is limited the engines are no longer at the commanded
+     setting; metering fuel at the commanded thrust would overstate the burn. */
+  const delivered = Math.min(thrust, st.drag + weight * Math.sin(gamma));
+  st.thrust = Math.max(delivered, 0);
+  st.fuelFlow = fuelFlow(st.thrust, p.tsfc);
+  st.angleLimited = Math.abs(st.thrust - thrust) > 1e-9;
+  return st;
+}
+
+/** Trimmed level cruise: the autothrottle sets T = D exactly. */
+function cruisePoint(p, mass) {
+  const h = p.hcruise;
+  const v = p.cruiseMach * speedOfSound(h);
+  const q = 0.5 * density(h) * v * v;
+  const cl = mass * G0 / (q * p.S);
+  const cd = dragCoefficient(cl, p.cd0, p.k, p.cruiseMach, p.mcrit);
+  const drag = q * p.S * cd;
+  const tAvail = availableThrust(p.thrust, p.lapse, densityRatio(h), 1.0);
+  return {
+    v: v, cl: cl, cd: cd, drag: drag, thrust: drag,
+    throttle: tAvail > 0 ? drag / tAvail : Infinity,
+    fuelFlow: fuelFlow(drag, p.tsfc),
+    ld: cd > 0 ? cl / cd : Infinity
+  };
+}
+
+/* --- Fixed-step RK4 with a terminal event ----------------------------- */
+function rk4Step(rhs, y, dt) {
+  const n = y.length;
+  const k1 = rhs(y);
+  const y2 = new Array(n), y3 = new Array(n), y4 = new Array(n);
+  for (let i = 0; i < n; i++) y2[i] = y[i] + 0.5 * dt * k1[i];
+  const k2 = rhs(y2);
+  for (let i = 0; i < n; i++) y3[i] = y[i] + 0.5 * dt * k2[i];
+  const k3 = rhs(y3);
+  for (let i = 0; i < n; i++) y4[i] = y[i] + dt * k3[i];
+  const k4 = rhs(y4);
+  const out = new Array(n);
+  for (let i = 0; i < n; i++) {
+    out[i] = y[i] + dt / 6 * (k1[i] + 2 * k2[i] + 2 * k3[i] + k4[i]);
+  }
+  return out;
+}
+
+function integratePhase(rhs, y0, dt, tMax, watch, rising, abort) {
+  let y = y0.slice(), t = 0;
+  const ts = [0.0], ys = [y0.slice()];
+  const nMax = Math.ceil(tMax / dt);
+  let hit = false, message = "";
+  const done = () => ({
+    t: ts, y: ys, hit: hit, message: message,
+    tEnd: ts[ts.length - 1], yEnd: ys[ys.length - 1]
+  });
+  for (let i = 0; i < nMax; i++) {
+    const prev = y.slice();
+    const next = rk4Step(rhs, y, dt);
+    const s0 = watch(prev), s1 = watch(next);
+    if (rising ? s1 >= 0 : s1 <= 0) {
+      const den = s1 - s0;
+      let frac = Math.abs(den) < 1e-15 ? 0 : -s0 / den;
+      frac = Math.min(Math.max(frac, 0), 1);
+      ts.push(t + frac * dt);
+      ys.push(prev.map((v, j) => v + frac * (next[j] - v)));
+      hit = true;
+      return done();
+    }
+    y = next; t += dt;
+    ts.push(t); ys.push(y.slice());
+    if (!next.every(isFinite)) { message = "state diverged"; break; }
+    if (abort && abort(y)) { message = "guard triggered"; break; }
+  }
+  if (!hit && !message) message = "time limit reached";
+  return done();
+}
+
+/* Physical guards: running out of fuel, or a climb that stopped climbing.
+   Without them an infeasible mission would fly level at its ceiling until the
+   time limit, burning tankfuls of fuel it does not have. */
+function makeGuard(p, isClimb) {
+  const dryMass = p.m0 - p.fuel;
+  let idle = 0, prevH = null, fuelOut = false, stalled = false;
+  return {
+    get fuelOut() { return fuelOut; },
+    get stalled() { return stalled; },
+    check(y) {
+      const m = y.length === 3 ? y[2] : y[1];
+      if (m <= dryMass) { fuelOut = true; return true; }
+      if (isClimb) {
+        if (prevH !== null && y[0] - prevH < 0.02 * p.dt) idle += p.dt;
+        else idle = 0;
+        prevH = y[0];
+        if (idle >= p.stallPatience) { stalled = true; return true; }
+      }
+      return false;
+    }
+  };
+}
+
+function thin(sol, maxPoints) {
+  const n = sol.t.length;
+  if (n <= maxPoints || maxPoints < 2) return sol;
+  const step = (n - 1) / (maxPoints - 1);
+  const seen = {}, idx = [];
+  for (let i = 0; i < maxPoints; i++) {
+    const j = Math.round(i * step);
+    if (!seen[j]) { seen[j] = 1; idx.push(j); }
+  }
+  idx.sort((a, b) => a - b);
+  return {
+    t: idx.map((i) => sol.t[i]), y: idx.map((i) => sol.y[i]),
+    hit: sol.hit, message: sol.message, tEnd: sol.tEnd, yEnd: sol.yEnd
+  };
+}
+
+/* --- Mission ----------------------------------------------------------- */
+function minMassOf(p) { return p.m0 - p.fuel + p.reserve; }
+
+function simulate(p) {
+  const dt = p.dt, tMax = p.tMax, n = p.nPoints;
+  const minMass = minMassOf(p);
+  const gClimbMax = p.maxClimbGammaDeg * Math.PI / 180;
+  const gClimbMin = p.climbMinGammaDeg * Math.PI / 180;
+  const gDescentMin = p.minDescentGammaDeg * Math.PI / 180;
+
+  const T = [], H = [], V = [], X = [], M = [], phases = [];
+  let offset = 0, completed = true, note = "";
+
+  function record(sol, name, hOf, vOf, skipFirst) {
+    const i0 = T.length;
+    for (let i = 0; i < sol.t.length; i++) {
+      if (skipFirst && i === 0) continue;
+      const s = sol.y[i];
+      T.push(sol.t[i] + offset);
+      H.push(hOf(s)); V.push(vOf(s));
+      X.push(s.length === 3 ? s[1] : s[0]);
+      M.push(s.length === 3 ? s[2] : s[1]);
+    }
+    phases.push({ name: name, i0: i0, i1: T.length });
+    offset += sol.tEnd;
+  }
+
+  /* climb: scheduled speed, flight path angle from the excess power */
+  const climbRhs = (y) => {
+    const h = Math.max(y[0], 0), m = Math.max(y[2], 1);
+    const v = scheduledSpeed(h, p.climbCas, p.cruiseMach);
+    const st = steadyFlightPathAngle(p, h, v, m, p.climbThrottle, gClimbMin, gClimbMax);
+    return [v * Math.sin(st.gamma), v * Math.cos(st.gamma), -st.fuelFlow];
+  };
+  const guard = makeGuard(p, true);
+  let sol = integratePhase(climbRhs, [p.h0, 0, p.m0], dt, tMax,
+    (y) => y[0] - p.hcruise, true, guard.check);
+  const ceiling = Math.max.apply(null, sol.y.map((s) => s[0]));
+  sol = thin(sol, n);
+  record(sol, "climb",
+    (s) => s[0], (s) => scheduledSpeed(s[0], p.climbCas, p.cruiseMach), false);
+  if (!sol.hit) {
+    let msg;
+    if (guard.fuelOut) {
+      msg = "Climb ran out of fuel at " + Math.round(ceiling) + " m, below the cruise altitude.";
+    } else if (guard.stalled) {
+      msg = "Climb stalled at " + Math.round(ceiling) + " m: the excess thrust is exhausted.";
+    } else {
+      msg = "Climb stopped at " + Math.round(ceiling) + " m; the cruise altitude of " +
+            Math.round(p.hcruise) + " m was never reached.";
+    }
+    return finish({
+      t: T, h: H, v: V, x: X, m: M, phases: phases, completed: false,
+      note: msg, ceiling: ceiling
+    }, p);
+  }
+
+  /* cruise: constant altitude, constant Mach, throttle trimmed to T = D */
+  const vCruise = p.cruiseMach * speedOfSound(p.hcruise);
+  const cruiseRhs = (y) => {
+    const st = cruisePoint(p, Math.max(y[1], 1));
+    return [vCruise, -st.fuelFlow];
+  };
+  const start = cruisePoint(p, sol.yEnd[2]);
+  const end = cruisePoint(p, minMass);
+  if (start.throttle > 1) {
+    note = "Cruise needs a throttle of " + start.throttle.toFixed(2) +
+           ": the installed thrust cannot hold M=" + p.cruiseMach.toFixed(2) +
+           " at " + Math.round(p.hcruise) + " m.";
+  }
+  const xAfterClimb = sol.yEnd[1], mAfterClimb = sol.yEnd[2];
+  let csol = integratePhase(cruiseRhs, [xAfterClimb, mAfterClimb], dt, tMax,
+    (y) => y[1] - minMass, false);
+  csol = thin(csol, n);
+  record(csol, "cruise", (s) => p.hcruise, (s) => vCruise, true);
+  if (!csol.hit) {
+    return finish({
+      t: T, h: H, v: V, x: X, m: M, phases: phases, completed: false,
+      note: note || "Cruise hit the time limit before the fuel reserve was reached.",
+      cruiseThrottle: start.throttle, cruiseThrottleEnd: end.throttle
+    }, p);
+  }
+
+  /* descent: idle thrust, the negative excess power sets the glide angle */
+  const descentRhs = (y) => {
+    const h = Math.max(y[0], 0), m = Math.max(y[2], 1);
+    const v = scheduledSpeed(h, p.descentCas || p.climbCas, p.cruiseMach);
+    const st = steadyFlightPathAngle(p, h, v, m, p.descentThrottle, gDescentMin, 0);
+    return [v * Math.sin(st.gamma), v * Math.cos(st.gamma), -st.fuelFlow];
+  };
+  const dGuard = makeGuard(p, false);
+  let dsol = integratePhase(descentRhs, [p.hcruise, csol.yEnd[0], csol.yEnd[1]], dt, tMax,
+    (y) => y[0] - p.hEnd, false, dGuard.check);
+  dsol = thin(dsol, n);
+  record(dsol, "descent",
+    (s) => s[0], (s) => scheduledSpeed(s[0], p.descentCas || p.climbCas, p.cruiseMach), true);
+  if (!dsol.hit) {
+    completed = false;
+    note = note || (dGuard.fuelOut
+      ? "Ran out of fuel during the descent."
+      : "Descent did not reach " + Math.round(p.hEnd) + " m within the time limit.");
+  }
+
+  return finish({
+    t: T, h: H, v: V, x: X, m: M, phases: phases, completed: completed, note: note,
+    cruiseThrottle: start.throttle, cruiseThrottleEnd: end.throttle
+  }, p);
+}
+
+function finish(r, p) {
+  r.range_km = X_last(r.x) / 1000;
+  r.endurance_min = T_last(r.t) / 60;
+  r.fuel_kg = r.m[0] - X_last(r.m);
+  r.max_cl = 0;
+  for (let i = 0; i < r.h.length; i++) {
+    const q = 0.5 * density(r.h[i]) * r.v[i] * r.v[i];
+    const cl = r.m[i] * G0 / (q * p.S);
+    if (cl > r.max_cl) r.max_cl = cl;
+  }
+  r.stalled = r.max_cl > p.clMax;
+  const cr = r.phases.find((ph) => ph.name === "cruise");
+  r.cruise_km = cr ? (r.x[cr.i1 - 1] - r.x[cr.i0]) / 1000 : 0;
+  r.v_cruise = p.cruiseMach * speedOfSound(p.hcruise);
+  return r;
+}
+function X_last(a) { return a.length ? a[a.length - 1] : 0; }
+function T_last(a) { return a.length ? a[a.length - 1] : 0; }
+
+/* Cross-check: closed-form Breguet range for the cruise segment. */
+function breguetRange(p, m0, m1) {
+  const v = p.cruiseMach * speedOfSound(p.hcruise);
+  const mMean = Math.sqrt(Math.max(m0 * m1, 1));
+  const st = cruisePoint(p, mMean);
+  return v * st.ld / (p.tsfc * G0) * Math.log(m0 / m1);
+}
+
+/** One mission per value of a single parameter (fast: coarse step). */
+function sweep(p, key, values) {
+  const coarse = Object.assign({}, p, { dt: 10.0, nPoints: 40 });
+  return values.map((val) => {
+    const q = Object.assign({}, coarse);
+    q[key] = val;
+    if (key === "tsfc") q.tsfc = val * 1e-5;
+    const r = simulate(q);
+    return { x: val, range_km: r.range_km, endurance_min: r.endurance_min, completed: r.completed };
+  });
+}
+
+/* ===== MODEL:END ===== */
+
+/* ------------------------------------------------------------------ *
+ * Canvas plotting (no external libraries)
+ * ------------------------------------------------------------------ */
+const PHASE_COLORS = { climb: "#2ca02c", cruise: "#1f77b4", descent: "#d62728" };
+
+function fmtTick(v) {
+  const a = Math.abs(v);
+  if (a >= 10000) return (v / 1000).toFixed(0) + "k";
+  if (a >= 100) return v.toFixed(0);
+  if (a >= 1) return v.toFixed(1);
+  return v.toFixed(2);
+}
+
+function drawChart(id, xs, ys, opts) {
+  const cv = document.getElementById(id);
+  if (!cv) return;
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  if (!w || !h) return;
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  const g = cv.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+
+  const m = { l: 62, r: 16, t: 26, b: 34 };
+  const pw = w - m.l - m.r, ph = h - m.t - m.b;
+  const n = Math.min(xs.length, ys.length);
+
+  let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
+  for (let i = 0; i < n; i++) {
+    if (!isFinite(xs[i]) || !isFinite(ys[i])) continue;
+    if (xs[i] < xmin) xmin = xs[i];
+    if (xs[i] > xmax) xmax = xs[i];
+    if (ys[i] < ymin) ymin = ys[i];
+    if (ys[i] > ymax) ymax = ys[i];
+  }
+  if (!isFinite(xmin)) return;
+  if (xmax === xmin) { xmax = xmin + 1; }
+  if (ymax === ymin) { ymax = ymin + 1; }
+  const padY = (ymax - ymin) * 0.08;
+  ymin -= padY; ymax += padY;
+
+  const X = (v) => m.l + (v - xmin) / (xmax - xmin) * pw;
+  const Y = (v) => m.t + ph - (v - ymin) / (ymax - ymin) * ph;
+
+  g.font = "11px -apple-system, Segoe UI, sans-serif";
+  g.strokeStyle = "#eceef1"; g.lineWidth = 1;
+  g.fillStyle = "#8a939e";
+  for (let i = 0; i <= 4; i++) {
+    const yy = m.t + ph * i / 4;
+    g.beginPath(); g.moveTo(m.l, yy); g.lineTo(m.l + pw, yy); g.stroke();
+    const val = ymax - (ymax - ymin) * i / 4;
+    g.textAlign = "right"; g.textBaseline = "middle";
+    g.fillText(fmtTick(val), m.l - 6, yy);
+  }
+  for (let i = 0; i <= 5; i++) {
+    const xx = m.l + pw * i / 5;
+    g.beginPath(); g.moveTo(xx, m.t); g.lineTo(xx, m.t + ph); g.stroke();
+    const val = xmin + (xmax - xmin) * i / 5;
+    g.textAlign = "center"; g.textBaseline = "top";
+    g.fillText(fmtTick(val), xx, m.t + ph + 6);
+  }
+
+  if (opts && opts.phases) {
+    for (const phs of opts.phases) {
+      const i0 = Math.max(0, phs.i0), i1 = Math.min(n - 1, phs.i1 - 1);
+      if (i1 <= i0) continue;
+      g.fillStyle = (PHASE_COLORS[phs.name] || "#999999") + "18";
+      g.fillRect(X(xs[i0]), m.t, Math.max(X(xs[i1]) - X(xs[i0]), 0.5), ph);
+    }
+  }
+
+  g.strokeStyle = "#c9cfd6";
+  g.strokeRect(m.l, m.t, pw, ph);
+
+  g.strokeStyle = (opts && opts.color) || "#1f77b4";
+  g.lineWidth = 1.8;
+  g.beginPath();
+  let started = false;
+  for (let i = 0; i < n; i++) {
+    if (!isFinite(xs[i]) || !isFinite(ys[i])) continue;
+    const px = X(xs[i]), py = Y(ys[i]);
+    if (!started) { g.moveTo(px, py); started = true; } else { g.lineTo(px, py); }
+  }
+  g.stroke();
+
+  if (opts && opts.markers) {
+    g.fillStyle = g.strokeStyle;
+    for (let i = 0; i < n; i++) {
+      g.beginPath(); g.arc(X(xs[i]), Y(ys[i]), 2.6, 0, 2 * Math.PI); g.fill();
+    }
+  }
+
+  g.fillStyle = "#1c2430";
+  g.font = "12px -apple-system, Segoe UI, sans-serif";
+  g.textAlign = "left"; g.textBaseline = "top";
+  g.fillText((opts && opts.title) || "", m.l, 6);
+  g.fillStyle = "#66707d";
+  g.font = "11px -apple-system, Segoe UI, sans-serif";
+  g.textAlign = "right"; g.textBaseline = "bottom";
+  g.fillText((opts && opts.xlabel) || "", m.l + pw, h - 2);
+  g.save();
+  g.translate(12, m.t + ph / 2); g.rotate(-Math.PI / 2);
+  g.textAlign = "center"; g.textBaseline = "top";
+  g.fillText((opts && opts.ylabel) || "", 0, 0);
+  g.restore();
+}
+
+/* ------------------------------------------------------------------ *
+ * UI wiring
+ * ------------------------------------------------------------------ */
+const FMT = {
+  m0: (v) => (v / 1000).toFixed(1) + " t",
+  fuel: (v) => v.toFixed(0) + " kg",
+  S: (v) => v.toFixed(1) + " m2",
+  cd0: (v) => v.toFixed(3),
+  kind: (v) => v.toFixed(3),
+  thrust: (v) => (v / 1000).toFixed(1) + " kN",
+  tsfc: (v) => v.toFixed(2) + "e-5",
+  hcruise: (v) => (v / 1000).toFixed(1) + " km",
+  cruiseMach: (v) => "M " + v.toFixed(2),
+  climbCas: (v) => v.toFixed(0) + " m/s",
+  descentThrottle: (v) => v.toFixed(2)
+};
+const DEFAULTS = {
+  m0: 12000, fuel: 3000, S: 24, cd0: 0.025, kind: 0.048, thrust: 39000, tsfc: 1.6,
+  hcruise: 11000, cruiseMach: 0.78, climbCas: 150, descentThrottle: 0.15
+};
+const SWEEP_RANGE = {
+  m0: { min: 7000, max: 20000, n: 12 },
+  cd0: { min: 0.016, max: 0.055, n: 12 },
+  thrust: { min: 10000, max: 50000, n: 12 },
+  hcruise: { min: 4000, max: 15000, n: 12 },
+  cruiseMach: { min: 0.5, max: 0.86, n: 12 },
+  tsfc: { min: 0.9, max: 2.6, n: 12 },
+  fuel: { min: 800, max: 7000, n: 12 }
+};
+
+function readParams() {
+  const g = (id) => +document.getElementById(id).value;
+  return {
+    m0: g("m0"), fuel: g("fuel"), S: g("S"), cd0: g("cd0"), k: g("kind"),
+    thrust: g("thrust"), tsfc: g("tsfc") * 1e-5,
+    hcruise: g("hcruise"), cruiseMach: g("cruiseMach"), climbCas: g("climbCas"),
+    descentCas: g("climbCas"), descentThrottle: g("descentThrottle"),
+    clMax: 1.4, mcrit: 0.82, lapse: 0.9, reserve: 200,
+    climbThrottle: 1.0, maxClimbGammaDeg: 8.0, climbMinGammaDeg: -10.0,
+    minDescentGammaDeg: -20.0, stallPatience: 600,
+    h0: 100, hEnd: 500, dt: 2.0, tMax: 40000, nPoints: 400
+  };
+}
+
+function syncLabels() {
+  for (const key in DEFAULTS) {
+    const el = document.getElementById(key);
+    const lab = document.getElementById("v_" + (key === "kind" ? "k" : key));
+    if (el && lab) lab.textContent = FMT[key](+el.value);
+  }
+}
+
+function renderSummary(r, p) {
+  const items = [
+    ["Range", r.range_km.toFixed(0), "km"],
+    ["Cruise part", r.cruise_km.toFixed(0), "km"],
+    ["Endurance", r.endurance_min.toFixed(0), "min"],
+    ["Fuel burned", r.fuel_kg.toFixed(0), "kg"],
+    ["Cruise throttle", isFinite(r.cruiseThrottle) ? r.cruiseThrottle.toFixed(2) : "-", ""],
+    ["Cruise TAS", r.v_cruise.toFixed(0), "m/s"],
+    ["Peak CL", r.max_cl.toFixed(2), ""],
+    ["Top altitude", (Math.max.apply(null, r.h) / 1000).toFixed(1), "km"]
+  ];
+  document.getElementById("summary").innerHTML = items.map((it) =>
+    '<div class="metric"><div class="k">' + it[0] +
+    '</div><div class="v">' + it[1] +
+    (it[2] ? ' <span class="u">' + it[2] + "</span>" : "") + "</div></div>"
+  ).join("");
+
+  const warn = document.getElementById("warn");
+  let msg = r.note || "";
+  if (!msg && r.stalled) msg = "The required lift coefficient exceeds CL_max: the schedule stalls.";
+  if (msg) { warn.style.display = "block"; warn.textContent = msg; }
+  else { warn.style.display = "none"; }
+}
+
+function render(r) {
+  const tmin = r.t.map((v) => v / 60);
+  const base = { phases: r.phases, xlabel: "Time [min]" };
+  drawChart("c_alt", tmin, r.h.map((v) => v / 1000),
+    Object.assign({}, base, { title: "Altitude", ylabel: "Altitude [km]", color: "#1f77b4" }));
+  drawChart("c_spd", tmin, r.v,
+    Object.assign({}, base, { title: "True airspeed", ylabel: "TAS [m/s]", color: "#ff7f0e" }));
+  drawChart("c_mass", tmin, r.m.map((v) => v / 1000),
+    Object.assign({}, base, { title: "Mass", ylabel: "Mass [t]", color: "#9467bd" }));
+  drawChart("c_rng", tmin, r.x.map((v) => v / 1000),
+    Object.assign({}, base, { title: "Ground distance", ylabel: "Range [km]", color: "#2ca02c" }));
+  drawChart("c_prof", r.x.map((v) => v / 1000), r.h.map((v) => v / 1000),
+    { title: "Mission profile", xlabel: "Range [km]", ylabel: "Altitude [km]", color: "#17a2b8" });
+}
+
+let timer = null;
+function run() {
+  const p = readParams();
+  const r = simulate(p);
+  renderSummary(r, p);
+  render(r);
+  return r;
+}
+
+function runSweep() {
+  const key = document.getElementById("sweepParam").value;
+  const spec = SWEEP_RANGE[key];
+  const values = [];
+  for (let i = 0; i < spec.n; i++) {
+    values.push(spec.min + (spec.max - spec.min) * i / (spec.n - 1));
+  }
+  const rows = sweep(readParams(), key, values);
+  const labels = {
+    m0: "Take-off mass [t]", cd0: "CD0", thrust: "Sea-level thrust [kN]",
+    hcruise: "Cruise altitude [km]", cruiseMach: "Cruise Mach",
+    tsfc: "TSFC [1e-5]", fuel: "Usable fuel [kg]"
+  };
+  const scale = (key === "m0" || key === "thrust") ? 1e-3
+    : (key === "hcruise") ? 1e-3 : 1;
+  drawChart("c_sweep", rows.map((r) => r.x * scale), rows.map((r) => r.range_km), {
+    title: "Range vs " + labels[key],
+    xlabel: labels[key], ylabel: "Range [km]", color: "#1f6feb", markers: true
+  });
+}
+
+function attachLive(id) {
+  const el = document.getElementById(id);
+  el.addEventListener("input", () => {
+    syncLabels();
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(run, 120);
+  });
+}
+
+for (const key in DEFAULTS) attachLive(key);
+document.getElementById("run").addEventListener("click", run);
+document.getElementById("sweep").addEventListener("click", runSweep);
+document.getElementById("reset").addEventListener("click", () => {
+  for (const key in DEFAULTS) document.getElementById(key).value = DEFAULTS[key];
+  syncLabels();
+  run();
+});
+window.addEventListener("resize", () => { run(); runSweep(); });
+
+syncLabels();
+run();
+runSweep();
+</script>
+</body>
+</html>

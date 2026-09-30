@@ -1,0 +1,4 @@
+# Desktop application (desktop/):
+PySide6-Essentials>=6.5
+
+# Build the Windows executable:/npyinstaller>=6.0

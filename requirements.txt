@@ -1,0 +1,4 @@
+# Runtime dependencies: none. The solver is pure standard-library Python.
+
+# Optional, only for the matplotlib plotting helpers:
+matplotlib>=3.5
